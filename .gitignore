@@ -24,6 +24,9 @@ PRD.md
 *.gif
 *.bmp
 
+# Internal guide documents
+docs/
+
 # IDE & OS
 .idea/
 .vscode/
