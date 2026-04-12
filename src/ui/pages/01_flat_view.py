@@ -15,24 +15,6 @@ inject_global_css()
 st.title("📋 Flat View — Before AI")
 st.caption("기존 JIRA 방식 재현: 18개 티켓이 flat list로 나열됩니다.")
 
-if has_ai_results:
-    reclassified = sum(
-        1 for v in ai_nodes.values()
-        if v["ai_type"] != v["original_jira_type"]
-    )
-    st.success(
-        f"✅ AI 분류 결과 로드됨 — {len(ai_nodes)}개 노드 분석 완료 "
-        f"({'🔄 ' + str(reclassified) + '개 재분류' if reclassified else '모든 타입 일치'}). "
-        f"**AI Type** 컬럼에서 변경 사항을 확인하세요.",
-        icon="🤖",
-    )
-else:
-    st.info(
-        "⚙️ AI 분류 결과 없음 — **Agent Run** 페이지에서 파이프라인을 실행하면 "
-        "JIRA 타입이 맞는지 AI가 검증하고 이 뷰에 결과가 표시됩니다.",
-        icon="💡",
-    )
-
 # --------------------------------------------------------------------------- load
 adapter = DummyAdapter()
 tickets = adapter.fetch_all_tickets()
@@ -61,6 +43,25 @@ def _load_ai_nodes() -> dict[str, dict]:
 
 ai_nodes = _load_ai_nodes()
 has_ai_results = len(ai_nodes) > 0
+
+# AI 결과 배너
+if has_ai_results:
+    reclassified = sum(
+        1 for v in ai_nodes.values()
+        if v["ai_type"] != v["original_jira_type"]
+    )
+    st.success(
+        f"✅ AI 분류 결과 로드됨 — {len(ai_nodes)}개 노드 분석 완료 "
+        f"({'🔄 ' + str(reclassified) + '개 재분류' if reclassified else '모든 타입 일치'}). "
+        f"**AI Type** 컬럼에서 변경 사항을 확인하세요.",
+        icon="🤖",
+    )
+else:
+    st.info(
+        "⚙️ AI 분류 결과 없음 — **Agent Run** 페이지에서 파이프라인을 실행하면 "
+        "JIRA 타입이 맞는지 AI가 검증하고 이 뷰에 결과가 표시됩니다.",
+        icon="💡",
+    )
 
 # --------------------------------------------------------------------------- pain point
 st.error(
