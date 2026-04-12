@@ -1,0 +1,365 @@
+{
+  "project": "Ulysses",
+  "description": "Camera HW SW Improvement Project — SoC Multimedia & Camera HAL",
+  "domain": "SoC Camera HAL (Sony IMX789, 4K60 pipeline, HDR TME)",
+  "tickets": [
+    {
+      "id": "CAM-001",
+      "type": "Requirement",
+      "summary": "4K@60fps video capture with <100ms end-to-end latency",
+      "description": "Customer (OEM-A) requires 4K60 video pipeline with sub-100ms glass-to-glass latency for automotive rearview application. Measured from ISP input to display output. This is a P0 contractual requirement — any violation triggers penalty clause.",
+      "status": "Open",
+      "labels": ["customer-req", "OEM-A", "latency", "priority-P0"],
+      "linked_issue_ids": [],
+      "reporter": "system.engineer@ulysses.com",
+      "sprint": "Sprint-0 (Backlog)",
+      "priority": "P0"
+    },
+    {
+      "id": "CAM-002",
+      "type": "Requirement",
+      "summary": "HDR10 support in still image capture path",
+      "description": "System requirement derived from OEM-A contract. Still image pipeline must support HDR10 tone mapping using multi-frame stacking (3-frame bracket). Output ICC profile must be P3 wide gamut. Applies to both front and rear camera.",
+      "status": "Open",
+      "labels": ["system-req", "HDR", "ISP", "priority-P1"],
+      "linked_issue_ids": ["CAM-001"],
+      "reporter": "system.engineer@ulysses.com",
+      "sprint": "Sprint-0 (Backlog)",
+      "priority": "P1"
+    },
+    {
+      "id": "CAM-003",
+      "type": "Requirement",
+      "summary": "Power consumption <2.5W during 1080p30 preview",
+      "description": "Thermal and battery constraint from platform team. Camera subsystem (ISP + sensor + DRAM) must not exceed 2.5W sustained during standard preview use case on a 28nm process node. Violation causes thermal throttling and user-visible frame drops.",
+      "status": "Open",
+      "labels": ["system-req", "power", "thermal", "priority-P1"],
+      "linked_issue_ids": [],
+      "reporter": "platform.team@ulysses.com",
+      "sprint": "Sprint-0 (Backlog)",
+      "priority": "P1"
+    },
+    {
+      "id": "CAM-010",
+      "type": "Architecture_Block",
+      "summary": "ISP Pipeline Architecture v1.2 — Multi-thread tile processing",
+      "description": "Architecture decision: ISP pipeline shall use tile-based parallel processing with 4 hardware threads. Tile size fixed at 256x64 pixels. FIFO depth 8 tiles. This satisfies CAM-001 latency budget by distributing row processing across parallel execution units. Approved by HW Architecture Review Board.",
+      "status": "Approved",
+      "labels": ["arch-decision", "ISP", "HW-arch"],
+      "linked_issue_ids": ["CAM-001"],
+      "reporter": "hw.architect@ulysses.com",
+      "sprint": "Sprint-1",
+      "priority": "P0"
+    },
+    {
+      "id": "CAM-011",
+      "type": "Architecture_Block",
+      "summary": "Memory subsystem: LPDDR5 dual-channel allocation for camera",
+      "description": "Architecture decision: Camera subsystem allocated 2x LPDDR5 channels, 12.8 GB/s total bandwidth. Frame buffer layout: ping-pong double buffer in channel 0, histogram/stats in channel 1. Addresses bandwidth bottleneck identified in CAM-001 latency analysis. Budget leaves 15% margin for burst traffic.",
+      "status": "Approved",
+      "labels": ["arch-decision", "memory", "bandwidth"],
+      "linked_issue_ids": ["CAM-010"],
+      "reporter": "hw.architect@ulysses.com",
+      "sprint": "Sprint-1",
+      "priority": "P1"
+    },
+    {
+      "id": "CAM-012",
+      "type": "Architecture_Block",
+      "summary": "HDR Tone Mapping Engine — dedicated HW block",
+      "description": "Architecture decision: Dedicated HDR TME hardware block to avoid ISP pipeline stall during multi-frame stacking. Operates on offline queue with 4-frame deep buffer. Interfaces with ISP via AXI4-stream at 400MHz. Satisfies CAM-002 HDR requirement without impacting preview latency.",
+      "status": "Approved",
+      "labels": ["arch-decision", "HDR", "HW-block"],
+      "linked_issue_ids": ["CAM-002"],
+      "reporter": "hw.architect@ulysses.com",
+      "sprint": "Sprint-1",
+      "priority": "P1"
+    },
+    {
+      "id": "CAM-020",
+      "type": "Design_Spec",
+      "summary": "HAL3 CaptureRequest scheduler — ring buffer implementation",
+      "description": "SW design spec: HAL3 layer implements a 32-entry ring buffer for CaptureRequests. Each slot holds metadata + 3-frame reference for HDR. Dispatcher thread runs at SCHED_FIFO priority 80. Implements CAM-010 tile-processing architecture. Measured latency overhead: 3.2ms per request at 60fps.",
+      "status": "In Review",
+      "labels": ["sw-design", "HAL3", "scheduler"],
+      "linked_issue_ids": ["CAM-010", "CAM-002"],
+      "reporter": "sw.engineer@ulysses.com",
+      "sprint": "Sprint-2",
+      "priority": "P1"
+    },
+    {
+      "id": "CAM-021",
+      "type": "Design_Spec",
+      "summary": "HAL3 CaptureRequest scheduler — lock-free queue implementation (ALTERNATIVE)",
+      "description": "SW design spec (ALTERNATIVE to CAM-020): HAL3 layer uses a lock-free MPSC queue for CaptureRequests instead of ring buffer. Claims lower p99 latency (1.8ms) due to elimination of mutex contention under concurrent access. Also claims to implement CAM-010. NOTE: This directly conflicts with CAM-020 — only one scheduler design can be selected.",
+      "status": "In Review",
+      "labels": ["sw-design", "HAL3", "scheduler", "alternative"],
+      "linked_issue_ids": ["CAM-010"],
+      "reporter": "sw.lead@ulysses.com",
+      "sprint": "Sprint-2",
+      "priority": "P1"
+    },
+    {
+      "id": "CAM-022",
+      "type": "Design_Spec",
+      "summary": "Power management: Dynamic Voltage Frequency Scaling (DVFS) for ISP",
+      "description": "SW design spec: ISP DVFS governor reduces ISP clock from 800MHz to 400MHz when frame rate drops below 30fps. Uses Linux cpufreq-like interface. Targets CAM-003 power budget (measured reduction: 0.8W). CAUTION in description: frequency transition introduces 12-18ms pipeline drain period — potential conflict with CAM-001 100ms latency budget during scene transitions.",
+      "status": "Open",
+      "labels": ["sw-design", "power", "DVFS"],
+      "linked_issue_ids": ["CAM-003"],
+      "reporter": "sw.engineer@ulysses.com",
+      "sprint": "Sprint-2",
+      "priority": "P1"
+    },
+    {
+      "id": "CAM-023",
+      "type": "Design_Spec",
+      "summary": "Sensor driver: MIPI CSI-2 4-lane configuration for Sony IMX789",
+      "description": "HW/SW co-design spec: MIPI CSI-2 running at 2.5 Gbps per lane, 4 lanes total (10 Gbps aggregate), for Sony IMX789 sensor. Pixel format: RAW12. Virtual channel mapping: VC0=RGB, VC1=IR for simultaneous dual-stream capture. D-PHY v2.1 compliant. No parent requirement ticket linked — this was derived directly from hardware selection decision.",
+      "status": "Approved",
+      "labels": ["hw-sw-design", "sensor", "MIPI", "CSI2"],
+      "linked_issue_ids": [],
+      "reporter": "hw.sw.engineer@ulysses.com",
+      "sprint": "Sprint-1",
+      "priority": "P1"
+    },
+    {
+      "id": "CAM-030",
+      "type": "Verification",
+      "summary": "Latency bench: 4K60 pipeline end-to-end measurement",
+      "description": "Test plan: Inject synthetic 4K60 frames via hardware test pattern generator (TPG), measure ISP-to-display latency with hardware timestamp injection at ISP input and display controller output. Target: <100ms at p95. Measurement tool: custom latency_bench.py with 1ms resolution. 1000-frame test window per configuration. Verifies CAM-001.",
+      "status": "In Progress",
+      "labels": ["test", "latency", "bench"],
+      "linked_issue_ids": ["CAM-001", "CAM-010"],
+      "reporter": "test.engineer@ulysses.com",
+      "sprint": "Sprint-3",
+      "priority": "P0"
+    },
+    {
+      "id": "CAM-031",
+      "type": "Verification",
+      "summary": "HDR image quality validation — VESA DisplayHDR 1000 compliance",
+      "description": "Test plan: Capture 24 Macbeth chart patches under controlled D65 illumination (1000 lux), process through HDR pipeline, compare against DisplayHDR 1000 reference. Metrics: Delta-E2000 < 2.0, peak luminance > 1000 nits, color gamut coverage > 90% P3. Uses Konica Minolta CS-2000 colorimeter. Verifies CAM-002 and CAM-012.",
+      "status": "Planned",
+      "labels": ["test", "HDR", "IQ"],
+      "linked_issue_ids": ["CAM-002", "CAM-012"],
+      "reporter": "test.engineer@ulysses.com",
+      "sprint": "Sprint-4",
+      "priority": "P1"
+    },
+    {
+      "id": "CAM-032",
+      "type": "Verification",
+      "summary": "Power consumption validation at 1080p30 preview",
+      "description": "Test plan: Measure full camera subsystem power (ISP + sensor + DRAM controller) via PMIC rail shunt resistors using Monsoon HV Power Monitor. Steady-state 60-second measurement period after 30s warmup. Ambient temperature 25°C. Target: < 2.5W average, < 3.0W peak. Verifies CAM-003.",
+      "status": "Planned",
+      "labels": ["test", "power"],
+      "linked_issue_ids": ["CAM-003"],
+      "reporter": "test.engineer@ulysses.com",
+      "sprint": "Sprint-4",
+      "priority": "P1"
+    },
+    {
+      "id": "CAM-040",
+      "type": "Issue",
+      "summary": "BUG: Latency spike 120ms observed during AE convergence",
+      "description": "Regression introduced in Sprint-3 build 0.4.2. During Auto Exposure convergence (scene brightness change >2 EV), end-to-end latency spikes to 115-130ms for 3-5 consecutive frames. Exceeds CAM-001 <100ms budget. Root cause under investigation. Suspected interaction: DVFS clock transition from CAM-022 (ISP drops to 400MHz) occurring simultaneously with HAL3 dispatcher flush in CAM-020, causing 2-frame pipeline bubble.",
+      "status": "Open",
+      "labels": ["bug", "P0", "latency", "regression"],
+      "linked_issue_ids": ["CAM-001", "CAM-020", "CAM-022"],
+      "reporter": "test.engineer@ulysses.com",
+      "sprint": "Sprint-3",
+      "priority": "P0"
+    },
+    {
+      "id": "CAM-041",
+      "type": "Issue",
+      "summary": "BUG: HDR TME AXI bus contention with ISP at >4K resolution",
+      "description": "HDR Tone Mapping Engine observed saturating AXI4-stream interconnect bus when processing 4K HDR frames simultaneously with ISP 4K preview. Measured memory bandwidth: 14.1 GB/s sustained, exceeding 12.8 GB/s allocation defined in CAM-011. Result: 2-4 frame drops per second in simultaneous HDR+preview scenario. Architecture bandwidth budget insufficient for concurrent operation.",
+      "status": "Open",
+      "labels": ["bug", "P1", "memory", "bandwidth"],
+      "linked_issue_ids": ["CAM-011", "CAM-012"],
+      "reporter": "hw.architect@ulysses.com",
+      "sprint": "Sprint-3",
+      "priority": "P1"
+    },
+    {
+      "id": "CAM-042",
+      "type": "Issue",
+      "summary": "RISK: No verification plan exists for MIPI CSI-2 multi-virtual-channel",
+      "description": "CAM-023 specifies simultaneous RGB+IR capture via MIPI virtual channels VC0/VC1, but no verification ticket has been created to validate this feature end-to-end. The dual-stream virtual channel routing is a complex feature with known interoperability issues across SoC revisions. This unverified assumption is embedded in the HAL design with no test coverage plan. Risk: feature may not work on early silicon.",
+      "status": "Open",
+      "labels": ["risk", "unverified", "MIPI"],
+      "linked_issue_ids": ["CAM-023"],
+      "reporter": "system.engineer@ulysses.com",
+      "sprint": "Sprint-3",
+      "priority": "P1"
+    },
+    {
+      "id": "CAM-050",
+      "type": "Design_Spec",
+      "summary": "3A Algorithm: AE/AWB/AF unified control loop",
+      "description": "SW design spec: Unified 3A (Auto-Exposure, Auto-White-Balance, Auto-Focus) control loop running at 30Hz. AE uses 256-zone histogram from ISP stats block. AWB uses per-tile (64x64) color temperature estimate with illuminant detection. AF uses Phase Detection AF from IMX789 embedded PDAF pixels. Control loop output feeds back into ISP registers via UMD/KMD interface at vsync boundary. NOTE: This spec has no parent requirement ticket, no associated architecture block, and no verification plan.",
+      "status": "In Review",
+      "labels": ["sw-design", "3A", "algorithm"],
+      "linked_issue_ids": [],
+      "reporter": "algorithm.engineer@ulysses.com",
+      "sprint": "Sprint-2",
+      "priority": "P1"
+    },
+    {
+      "id": "CAM-051",
+      "type": "Requirement",
+      "summary": "GDPR compliance: local-only face detection, no cloud upload",
+      "description": "Legal/compliance requirement from OEM-A for EU market. Any face detection, face recognition, or biometric processing must execute entirely on-device using the SoC NPU. No facial data or derived biometric features may leave the SoC boundary to cloud services. Applies to all camera pipelines: preview, capture, and video recording. Legal deadline: must be demonstrated before EU type approval submission. NOTE: No architecture decision or software design exists yet implementing this requirement.",
+      "status": "Open",
+      "labels": ["compliance", "GDPR", "privacy", "priority-P0"],
+      "linked_issue_ids": [],
+      "reporter": "legal.team@ulysses.com",
+      "sprint": "Sprint-0 (Backlog)",
+      "priority": "P0"
+    }
+  ],
+  "pre_computed_edges": [
+    {
+      "source_id": "CAM-010",
+      "target_id": "CAM-001",
+      "relation": "satisfies",
+      "reasoning": "ISP tile architecture explicitly designed to meet 4K60 <100ms latency requirement",
+      "is_inferred": false
+    },
+    {
+      "source_id": "CAM-011",
+      "target_id": "CAM-010",
+      "relation": "satisfies",
+      "reasoning": "Dual-channel LPDDR5 memory provides bandwidth required by ISP tile architecture",
+      "is_inferred": false
+    },
+    {
+      "source_id": "CAM-012",
+      "target_id": "CAM-002",
+      "relation": "satisfies",
+      "reasoning": "Dedicated HDR TME hardware block implements HDR10 multi-frame stacking requirement",
+      "is_inferred": false
+    },
+    {
+      "source_id": "CAM-020",
+      "target_id": "CAM-010",
+      "relation": "implements",
+      "reasoning": "Ring buffer HAL3 scheduler implements the ISP tile-based pipeline architecture",
+      "is_inferred": false
+    },
+    {
+      "source_id": "CAM-021",
+      "target_id": "CAM-010",
+      "relation": "implements",
+      "reasoning": "Lock-free queue scheduler is an alternative implementation of CAM-010 tile architecture",
+      "is_inferred": false
+    },
+    {
+      "source_id": "CAM-022",
+      "target_id": "CAM-003",
+      "relation": "implements",
+      "reasoning": "DVFS governor directly implements the power budget requirement for 1080p30",
+      "is_inferred": false
+    },
+    {
+      "source_id": "CAM-030",
+      "target_id": "CAM-001",
+      "relation": "verifies",
+      "reasoning": "Latency benchmark test directly verifies the <100ms end-to-end latency requirement",
+      "is_inferred": false
+    },
+    {
+      "source_id": "CAM-031",
+      "target_id": "CAM-002",
+      "relation": "verifies",
+      "reasoning": "HDR IQ validation test directly verifies the HDR10 still image capture requirement",
+      "is_inferred": false
+    },
+    {
+      "source_id": "CAM-031",
+      "target_id": "CAM-012",
+      "relation": "verifies",
+      "reasoning": "HDR IQ test validates the HDR TME hardware block output quality",
+      "is_inferred": false
+    },
+    {
+      "source_id": "CAM-032",
+      "target_id": "CAM-003",
+      "relation": "verifies",
+      "reasoning": "Power measurement test directly verifies the 2.5W power consumption requirement",
+      "is_inferred": false
+    },
+    {
+      "source_id": "CAM-040",
+      "target_id": "CAM-001",
+      "relation": "affects",
+      "reasoning": "Latency spike bug directly violates the <100ms latency requirement",
+      "is_inferred": false
+    },
+    {
+      "source_id": "CAM-040",
+      "target_id": "CAM-020",
+      "relation": "affects",
+      "reasoning": "Bug root cause involves HAL3 ring buffer scheduler flush during DVFS transition",
+      "is_inferred": false
+    },
+    {
+      "source_id": "CAM-040",
+      "target_id": "CAM-022",
+      "relation": "affects",
+      "reasoning": "Bug occurs when DVFS clock transition (CAM-022) coincides with scheduler operation",
+      "is_inferred": false
+    },
+    {
+      "source_id": "CAM-041",
+      "target_id": "CAM-011",
+      "relation": "affects",
+      "reasoning": "AXI bandwidth overflow bug violates the memory subsystem architecture allocation",
+      "is_inferred": false
+    },
+    {
+      "source_id": "CAM-041",
+      "target_id": "CAM-012",
+      "relation": "affects",
+      "reasoning": "HDR TME contention bug directly involves the HDR hardware block operation",
+      "is_inferred": false
+    },
+    {
+      "source_id": "CAM-042",
+      "target_id": "CAM-023",
+      "relation": "affects",
+      "reasoning": "Risk ticket flags that MIPI virtual channel feature in CAM-023 lacks verification",
+      "is_inferred": false
+    },
+    {
+      "source_id": "CAM-022",
+      "target_id": "CAM-001",
+      "relation": "affects",
+      "reasoning": "[INFERRED] DVFS 12-18ms clock transition period can push end-to-end latency above 100ms during AE convergence — described in CAM-022 description but no explicit link created",
+      "is_inferred": true
+    },
+    {
+      "source_id": "CAM-041",
+      "target_id": "CAM-001",
+      "relation": "affects",
+      "reasoning": "[INFERRED] AXI bandwidth overflow in HDR TME causes frame drops which violate 4K60 latency contract — cross-domain impact not captured in explicit links",
+      "is_inferred": true
+    },
+    {
+      "source_id": "CAM-023",
+      "target_id": "CAM-001",
+      "relation": "satisfies",
+      "reasoning": "[INFERRED] MIPI CSI-2 4-lane config at 10 Gbps is required to feed 4K60 raw frames into ISP — fundamental dependency for latency requirement",
+      "is_inferred": true
+    },
+    {
+      "source_id": "CAM-030",
+      "target_id": "CAM-010",
+      "relation": "verifies",
+      "reasoning": "[INFERRED] Latency benchmark inherently validates ISP tile architecture performance, not just the requirement",
+      "is_inferred": true
+    }
+  ]
+}

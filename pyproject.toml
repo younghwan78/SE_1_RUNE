@@ -1,0 +1,18 @@
+[project]
+name = "req-tracker-ai"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "instructor>=1.15.1",
+    "langchain-anthropic>=1.4.0",
+    "langgraph>=1.1.6",
+    "neo4j>=6.1.0",
+    "networkx>=3.6.1",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.13.1",
+    "python-dotenv>=1.2.2",
+    "pyvis>=0.3.2",
+    "streamlit>=1.56.0",
+]
