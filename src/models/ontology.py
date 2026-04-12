@@ -16,6 +16,9 @@ class OntologyNode(BaseModel):
     description: str
     status: str = Field(default="Open")
     labels: List[str] = Field(default_factory=list)
+    # AI reclassification tracking
+    original_jira_type: str = Field(default="", description="Original JIRA issue type before AI reclassification")
+    ai_classified: bool = Field(default=False, description="True if type was assigned/confirmed by AI")
 
 
 class OntologyEdge(BaseModel):

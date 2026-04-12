@@ -1,4 +1,4 @@
-"""Page 1: Flat View — Before (JIRA-like list)."""
+"""Page 1: Flat View — Before (JIRA-like list) + AI 재분류 결과."""
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
@@ -15,9 +15,52 @@ inject_global_css()
 st.title("📋 Flat View — Before AI")
 st.caption("기존 JIRA 방식 재현: 18개 티켓이 flat list로 나열됩니다.")
 
+if has_ai_results:
+    reclassified = sum(
+        1 for v in ai_nodes.values()
+        if v["ai_type"] != v["original_jira_type"]
+    )
+    st.success(
+        f"✅ AI 분류 결과 로드됨 — {len(ai_nodes)}개 노드 분석 완료 "
+        f"({'🔄 ' + str(reclassified) + '개 재분류' if reclassified else '모든 타입 일치'}). "
+        f"**AI Type** 컬럼에서 변경 사항을 확인하세요.",
+        icon="🤖",
+    )
+else:
+    st.info(
+        "⚙️ AI 분류 결과 없음 — **Agent Run** 페이지에서 파이프라인을 실행하면 "
+        "JIRA 타입이 맞는지 AI가 검증하고 이 뷰에 결과가 표시됩니다.",
+        icon="💡",
+    )
+
 # --------------------------------------------------------------------------- load
 adapter = DummyAdapter()
 tickets = adapter.fetch_all_tickets()
+
+# AI 분류 결과 로드 (파이프라인 실행 후에만 존재)
+@st.cache_resource(show_spinner=False)
+def _load_ai_nodes() -> dict[str, dict]:
+    """그래프 백엔드에서 AI 분류된 노드 로드.
+    반환: {ticket_id: {"ai_type": str, "original_jira_type": str, "ai_classified": bool}}
+    """
+    try:
+        from src.graph.factory import get_backend
+        backend = get_backend(persist=True)  # 저장된 그래프 로드
+        sg = backend.query_full_graph()
+        result = {}
+        for node in sg.nodes:
+            if node.ai_classified:  # AI가 분류한 노드만
+                result[node.id] = {
+                    "ai_type": node.type,
+                    "original_jira_type": node.original_jira_type,
+                    "ai_classified": node.ai_classified,
+                }
+        return result
+    except Exception:
+        return {}
+
+ai_nodes = _load_ai_nodes()
+has_ai_results = len(ai_nodes) > 0
 
 # --------------------------------------------------------------------------- pain point
 st.error(
@@ -34,7 +77,7 @@ col1, col2, col3 = st.columns(3)
 
 with col1:
     all_types = sorted({t.type for t in tickets})
-    selected_types = st.multiselect("Type 필터", all_types, default=all_types)
+    selected_types = st.multiselect("JIRA Type 필터", all_types, default=all_types)
 
 with col2:
     all_sprints = sorted({t.sprint for t in tickets if t.sprint})
@@ -57,16 +100,22 @@ filtered = [
 
 rows = []
 for t in filtered:
-    rows.append({
+    ai_info = ai_nodes.get(t.id, {})
+    ai_type = ai_info.get("ai_type", "")
+    changed = ai_type and ai_type != t.type
+    row: dict = {
         "ID": t.id,
-        "Type": t.type,
+        "JIRA Type": t.type,
         "Summary": t.summary,
         "Status": t.status,
         "Sprint": t.sprint,
         "Priority": t.priority,
         "Linked IDs": ", ".join(t.linked_issue_ids) if t.linked_issue_ids else "—",
         "Labels": ", ".join(t.labels[:3]),
-    })
+    }
+    if has_ai_results:
+        row["AI Type"] = (f"🔄 {ai_type}" if changed else ai_type) if ai_type else "—"
+    rows.append(row)
 
 df = pd.DataFrame(rows)
 
@@ -89,23 +138,29 @@ type_text_colors = {
 
 
 def highlight_row(row):
-    bg = type_colors.get(row["Type"], "#18181b")
-    # Keep text white so it's always readable against dark bg
+    # AI 재분류된 경우 행 배경색을 AI Type 기준으로 변경
+    type_col = "JIRA Type"
+    ai_col   = "AI Type" if "AI Type" in row.index else None
+    ai_val   = str(row.get(ai_col, "")).replace("🔄 ", "") if ai_col else ""
+    base_type = ai_val if ai_val and ai_val != "—" else row.get(type_col, "")
+    bg = type_colors.get(base_type, "#18181b")
     return [f"background-color: {bg}; color: #e8e8e8"] * len(row)
 
 
-def color_type_cell(val):
-    c = type_text_colors.get(val, "#e8e8e8")
-    return f"color: {c}; font-weight: 600"
+def color_type_cell(val: str) -> str:
+    clean = val.replace("🔄 ", "")
+    c = type_text_colors.get(clean, "#e8e8e8")
+    weight = "700" if val.startswith("🔄") else "600"
+    return f"color: {c}; font-weight: {weight}"
 
 
-st.dataframe(
-    df.style
-      .apply(highlight_row, axis=1)
-      .map(color_type_cell, subset=["Type"]),
-    use_container_width=True,
-    height=520,
-)
+style = df.style.apply(highlight_row, axis=1)
+type_cols = ["JIRA Type"]
+if "AI Type" in df.columns:
+    type_cols.append("AI Type")
+style = style.map(color_type_cell, subset=type_cols)
+
+st.dataframe(style, use_container_width=True, height=520)
 
 st.caption(f"총 {len(filtered)}개 티켓 표시 중 (전체 {len(tickets)}개)")
 
