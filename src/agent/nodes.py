@@ -118,7 +118,7 @@ def _get_client():
     return _instructor_client
 
 
-_MODEL = "claude-sonnet-4-6"
+_MODEL = os.getenv("LLM_MODEL", "claude-sonnet-4-6")
 
 # ── 노드 함수 ─────────────────────────────────────────────────────────────────
 

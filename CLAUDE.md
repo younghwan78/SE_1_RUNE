@@ -1,9 +1,26 @@
 # 🤖 CLAUDE.md: Req-Tracker AI Agent Guidelines
 
+---
+
+# 코드 수정 규칙
+## 필수 원칙
+코드를 수정하기 전에 반드시 파일을 먼저 읽어라
+- 맥락을 파악한 후 edit 실행
+- 추측으로 코드를 수정하지 말 것
+- Read도구로 파일 전체를 확인
+
+---
+
 ## 🎯 Project Context
 Build an autonomous agent extracting MBSE traceability (Req → Arch → Design → Verif) from JIRA tickets into a Neo4j Knowledge Graph, requiring human-in-the-loop approval via Streamlit.
 
 **POC Strategy (Demo-First)**: Use realistic dummy data (Ulysses Camera HAL, 18 tickets) to demonstrate KG value over flat JIRA — without requiring real JIRA access. Graph UI ships first (D+1~2), LLM pipeline second (D+3~5).
+
+**Phase 2 (In Progress)**: Source-agnostic Ingest Pipeline for real JIRA data.
+- 사내 JIRA는 Epic/Task/Subtask만 사용 → 이슈 타입 분류 불가 → 내용(제목+본문) 기반 분류 필수
+- `IngestSource` ABC + `RawDocument` 모델로 JIRA/Confluence/Email 확장 가능 구조
+- 2-Pass: 키워드 스코어링 → LLM 분류 → 사용자 검증 → Traceability 추론
+- 빈 Epic / description 없는 Task는 `is_processable=False`로 파이프라인 제외
 
 ## 🛠️ Tech Stack & Standard Commands
 - **Environment**: Python 3.11+, use `uv` for dependency management.
@@ -21,11 +38,22 @@ Build an autonomous agent extracting MBSE traceability (Req → Arch → Design 
 
 ## 🏗️ Architecture Patterns
 
-### Data Source Abstraction
+### Data Source Abstraction (레거시 — Dummy 데이터 전용)
 ```python
 # DATASOURCE_MODE=dummy (default) | jira
 get_adapter() -> DataSourceAdapter  # src/datasource/factory.py
 ```
+> ⚠️ 실 데이터 수집은 아래 Ingest Pipeline 사용. DataSourceAdapter는 dummy 모드 호환용으로 유지.
+
+### Ingest Pipeline (Phase 2 — 실 데이터 수집)
+```python
+# INGEST_SOURCE=jira (default) | confluence | email  (미래 확장)
+get_ingest_source() -> IngestSource  # src/ingest/factory.py
+```
+- `IngestSource.fetch_documents()` → `list[RawDocument]` (소스 독립 모델)
+- `RawDocument.is_processable` — title + body 모두 있어야 True. False는 파이프라인 제외
+- `ClassificationEngine` — 키워드 스코어링(≥0.65 확정) → LLM 분류 → `needs_review` 플래그
+- 이슈 타입(Epic/Task 등)은 분류 기준으로 사용 금지. 내용 기반 분류만 허용
 
 ### Graph Backend Abstraction
 ```python
@@ -60,6 +88,13 @@ Always use MERGE semantics. NetworkX backend serializes to `data/exports/graph.g
 5. **Idempotency**: Graph DB queries (Neo4j Cypher) MUST use `MERGE` instead of `CREATE`. NetworkX backend must also check for duplicates before adding nodes/edges.
 6. **Active Verification**: When extracting traceability, if a ticket contains test scripts, you MUST use the Sandbox Tool to execute it. Record the result in the `execution_status` and `execution_log` fields of the `OntologyEdge`.
 
+## 🔍 Classification Engine Rules (Phase 2)
+- **이슈 타입 금지**: JIRA 이슈 타입(Epic/Task/Subtask)으로 MBSE 분류 하지 말 것. 내용(title+body) 기반만 허용.
+- **빈 문서 제외**: `is_processable=False` (title 또는 body 없음) 문서는 파이프라인 진입 전 제외.
+- **키워드 우선**: 신뢰도 ≥ 0.65면 LLM 호출 없이 키워드로 확정 (비용 절감).
+- **검증 순서 고정**: Pass 1 분류 → 사용자 검증(Step 3.5) → Pass 2 Traceability. 검증 건너뛰기 금지.
+- **소스 확장**: 새 소스 추가 시 `IngestSource` ABC 구현 + `factory.py` 분기 추가만. 파이프라인 코드 수정 금지.
+
 ## 🧠 Agentic Reasoning Rules (For LLM Prompts)
 - **Mandatory Reasoning**: Always enforce a `reasoning` string field in the Pydantic schema when the LLM generates a relationship edge. The LLM must explain *why* it connected two components.
 - **Inferred Link Tagging**: AI-derived edges MUST have `reasoning` prefixed with `[INFERRED]` and `is_inferred=True`. This distinguishes them visually from original JIRA links (dashed vs solid edges).
@@ -71,8 +106,10 @@ Always use MERGE semantics. NetworkX backend serializes to `data/exports/graph.g
 ## 📁 Project Structure
 ```
 src/
-  models/          # OntologyNode, OntologyEdge, ProposedUpdate, GapFinding
-  datasource/      # DataSourceAdapter ABC + DummyAdapter + JiraAdapter + factory
+  models/          # OntologyNode, OntologyEdge, ProposedUpdate, GapFinding, RawDocument
+  datasource/      # [레거시] DataSourceAdapter ABC + DummyAdapter + JiraAdapter + factory
+  ingest/          # IngestSource ABC + JiraIngestSource + factory  ← Phase 2 실데이터
+  classification/  # ClassificationEngine (키워드+LLM 2단계) + keywords.py  ← Phase 2
   graph/           # GraphBackend ABC + NetworkXBackend + Neo4jBackend + factory
   agent/           # LangGraph nodes, edges, graph assembly, prompts
   staging/         # SQLite pending approval queue
@@ -80,8 +117,10 @@ src/
   ui/
     app.py
     pages/         # 01_flat_view, 02_graph_view, 03_agent_run, 04_approvals, 05_metrics
+                   # 06_ingest_pipeline (5-step JIRA 수집→분류→traceability→KG)
     components/    # graph_renderer.py (pyvis wrapper)
 data/dummy/        # ulysses_tickets.json (18 tickets + hardcoded relations)
+Phase1_design.md   # Phase 2 Ingest Pipeline 설계 문서
 tests/unit/
 tests/integration/
 ```
