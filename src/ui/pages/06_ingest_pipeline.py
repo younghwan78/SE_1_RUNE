@@ -449,13 +449,55 @@ with st.expander(
             _render_result_table(results, "all")
 
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("분류 확정 → Step 4 진행", type="primary", key="confirm_clf"):
-            from src.classification.engine import ClassificationEngine
-            engine = ClassificationEngine()
-            final = engine.apply_user_corrections(results, st.session_state.ip_corrections)
-            st.session_state.ip_final_results = final
-            st.session_state.ip_step = max(st.session_state.ip_step, 5)
-            st.success(f"분류 확정 완료: {len(final)}개 (수정: {len(st.session_state.ip_corrections)}개)")
+
+        # ── CSV 다운로드 ──────────────────────────────────────────────────────
+        import csv, io
+        def _make_csv(items, docs, corrections) -> bytes:
+            doc_map = {d.id: d for d in docs}
+            buf = io.StringIO()
+            writer = csv.writer(buf)
+            writer.writerow([
+                "doc_id", "title", "jira_type",
+                "mbse_type_original", "mbse_type_final",
+                "confidence", "method", "needs_review", "reasoning",
+            ])
+            for r in items:
+                doc = doc_map.get(r.doc_id)
+                final_type = corrections.get(r.doc_id, r.mbse_type)
+                writer.writerow([
+                    r.doc_id,
+                    doc.title if doc else "",
+                    doc.metadata.get("jira_type", "") if doc else "",
+                    r.mbse_type,
+                    final_type,
+                    f"{r.confidence:.3f}",
+                    r.method,
+                    str(r.needs_review),
+                    r.reasoning,
+                ])
+            return buf.getvalue().encode("utf-8-sig")  # utf-8-sig: Excel 한글 호환
+
+        csv_bytes = _make_csv(results, st.session_state.ip_documents, st.session_state.ip_corrections)
+        project_key_str = st.session_state.get("ip_project_key", "project") or "project"
+
+        col_dl, col_confirm = st.columns([1, 3])
+        with col_dl:
+            st.download_button(
+                label="CSV 다운로드",
+                data=csv_bytes,
+                file_name=f"{project_key_str}_classification.csv",
+                mime="text/csv",
+                key="dl_csv",
+                help="분류 결과를 CSV로 저장합니다. Excel에서 열 수 있습니다.",
+            )
+        with col_confirm:
+            if st.button("분류 확정 → Step 4 진행", type="primary", key="confirm_clf"):
+                from src.classification.engine import ClassificationEngine
+                engine = ClassificationEngine()
+                final = engine.apply_user_corrections(results, st.session_state.ip_corrections)
+                st.session_state.ip_final_results = final
+                st.session_state.ip_step = max(st.session_state.ip_step, 5)
+                st.success(f"분류 확정 완료: {len(final)}개 (수정: {len(st.session_state.ip_corrections)}개)")
 
 # ── STEP 4: Traceability 추론 ─────────────────────────────────────────────────
 
